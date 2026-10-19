@@ -1,57 +1,56 @@
-Create database Credito;
-use Credito;
 
+CREATE DATABASE IF NOT EXISTS Credito;
+USE Credito;
 
-Create table UsuarioAcceso(
-    idUsuarioAcceso int not null auto_increment primary key,
-    nombreUsuario varchar(50) UNIQUE not null,
-    contrasena varchar(50) not null
+CREATE TABLE UsuarioAcceso (
+    idUsuarioAcceso INT NOT NULL AUTO_INCREMENT,
+    clave VARCHAR(200),
+    nombreUsuario VARCHAR(40),
+    numeroIntentos INT NOT NULL DEFAULT 0, -- EXTRA (Reiniciador_Intentos)
+    ultimoIntento DATE, -- EXTRA (Reiniciador_Intentos)
+    PRIMARY KEY (idUsuarioAcceso)
 );
 
-Create table UsuarioCliente(
-    idCliente int not null auto_increment primary key,
-    nombre varchar(50) not null,
-    ingreso decimal(10,2) not null,
-    gastos decimal(10,2) not null,
-    historial varchar(50) not null
+CREATE TABLE UsuarioCliente (
+    idCliente INT NOT NULL AUTO_INCREMENT,
+    nombre VARCHAR(40),
+    ingreso DECIMAL(10,3),
+    gastos DECIMAL(10,3),
+    historial VARCHAR(100),
+    estado TINYINT NOT NULL DEFAULT 3, -- EXTRA (Asignado_Estado): 1 Aprobado, 2 Rechazado, 3 Pendiente
+    PRIMARY KEY (idCliente)
 );
 
-Create table FechaCredito(
-    RegistroFecha int not null auto_increment PRIMARY KEY,
-    fechaCredito date not null,
-    idCliente int not null
+CREATE TABLE Empresa (
+    idEmpresa INT NOT NULL AUTO_INCREMENT,
+    rubro VARCHAR(50),
+    director VARCHAR(40),
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente),
+    PRIMARY KEY (idEmpresa)
 );
 
-Create table Empresa (
-    idEmpresa int not null primary key,
-    rubro varchar(50) not null,
-    director varchar(50) not null,
-    foreign key (idEmpresa) references UsuarioCliente(idCliente)
+CREATE TABLE Persona (
+    idPersona INT NOT NULL AUTO_INCREMENT,
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente),
+    PRIMARY KEY (idPersona)
 );
 
-Create table Persona (
-    idPersona int not null primary key,
-    foreign key (idPersona) references UsuarioCliente(idCliente)
+CREATE TABLE infoLog (
+    idLog INT NOT NULL AUTO_INCREMENT,
+    numeroError INT,
+    error VARCHAR(300),
+    idUsuarioAcceso INT,
+    FOREIGN KEY (idUsuarioAcceso) REFERENCES UsuarioAcceso(idUsuarioAcceso),
+    PRIMARY KEY (idLog)
 );
-   Create table InfoLog ( 
-    idInfoLog int not null auto_increment primary key,
-    idUsuarioAcceso int not null,
-    numeroError int not null,
-    error varchar(50) not null,
-    foreign key (idUsuarioAcceso) references UsuarioAcceso(idUsuarioAcceso)
 
+CREATE TABLE FechaCredito(
+    RegistroFecha INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    fechaCredito DATE NOT NULL,
+    idCliente INT NOT NULL
 );
 
 ALTER TABLE FechaCredito
   ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
-
-
-insert into UsuarioAcceso(nombreUsuario, contrasena) values('Edgar', '1234');
-insert into UsuarioCliente(nombre, ingreso, gastos, historial) values('raul', 10000.00, 5000.00, 'Bueno');
-insert into Empresa(rubro, director) values('Tecnologia', 'Mario');
-insert into Persona() values();
-
-create user 'Comun'@'localhost' identified by 'userComun1#';
-
-##GRANT EXECUTE ON PROCEDURE NombreDelProceso TO 'Comun'@'localhost';
-##FLUSH PRIVILEGES;
