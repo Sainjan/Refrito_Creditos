@@ -49,6 +49,16 @@ CREATE TABLE infoLog (
     FOREIGN KEY (idUsuarioAcceso) REFERENCES UsuarioAcceso(idUsuarioAcceso),
     PRIMARY KEY (idLog)
 );
+
+Create table FechaCredito(
+    RegistroFecha int not null auto_increment PRIMARY KEY,
+    fechaCredito date not null,
+    idCliente int not null
+);
+
+ALTER TABLE FechaCredito
+  ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
+
 ------------------------------------------------------------------------------------------
 
 -- INICIALIZADOR DE BASE DE DATOS (solo siembra el usuario administrador, ID 1. La clave es un placeholder: hay que cambiarla desde la aplicación)
