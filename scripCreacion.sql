@@ -54,3 +54,13 @@ CREATE TABLE FechaCredito(
 
 ALTER TABLE FechaCredito
   ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
+
+CREATE table estado (
+    idEstado INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    estadoCredito VARCHAR(20) NOT NULL
+    idCliente INT NOT NULL
+);
+
+Alter TABLE estado
+  ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
+  
