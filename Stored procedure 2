@@ -1,1 +1,646 @@
+CREATE DATABASE SteaMLBDD;
 
+USE SteaMLBDD;
+
+-- Tablas del diagrama: UsuarioAcceso, UsuarioCliente, Empresa, Persona, infoLog
+-- Convención de infoLog.numeroError: 0 -> operación exitosa / 45000 -> advertencia de validación / otro -> MYSQL_ERRNO del error capturado
+-- Columnas EXTRA (no están en el diagrama pero las necesitan algunos SP): UsuarioAcceso.numeroIntentos, UsuarioAcceso.ultimoIntento y UsuarioCliente.estado
+
+CREATE TABLE UsuarioAcceso (
+    idUsuarioAcceso INT NOT NULL AUTO_INCREMENT,
+    clave VARCHAR(200),
+    nombreUsuario VARCHAR(40),
+    numeroIntentos INT NOT NULL DEFAULT 0, -- EXTRA (Reiniciador_Intentos)
+    ultimoIntento DATE, -- EXTRA (Reiniciador_Intentos)
+    PRIMARY KEY (idUsuarioAcceso)
+);
+
+CREATE TABLE UsuarioCliente (
+    idCliente INT NOT NULL AUTO_INCREMENT,
+    nombre VARCHAR(40),
+    ingreso DECIMAL(10,3),
+    gastos DECIMAL(10,3),
+    historial VARCHAR(100),
+    estado TINYINT NOT NULL DEFAULT 3, -- EXTRA (Asignado_Estado): 1 Aprobado, 2 Rechazado, 3 Pendiente
+    PRIMARY KEY (idCliente)
+);
+
+CREATE TABLE Empresa (
+    idEmpresa INT NOT NULL AUTO_INCREMENT,
+    rubro VARCHAR(50),
+    director VARCHAR(40),
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente),
+    PRIMARY KEY (idEmpresa)
+);
+
+CREATE TABLE Persona (
+    idPersona INT NOT NULL AUTO_INCREMENT,
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente),
+    PRIMARY KEY (idPersona)
+);
+
+CREATE TABLE infoLog (
+    idLog INT NOT NULL AUTO_INCREMENT,
+    numeroError INT,
+    error VARCHAR(300),
+    idUsuarioAcceso INT,
+    FOREIGN KEY (idUsuarioAcceso) REFERENCES UsuarioAcceso(idUsuarioAcceso),
+    PRIMARY KEY (idLog)
+);
+
+Create table FechaCredito(
+    RegistroFecha int not null auto_increment PRIMARY KEY,
+    fechaCredito date not null,
+    idCliente int not null
+);
+
+ALTER TABLE FechaCredito
+  ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
+
+------------------------------------------------------------------------------------------
+
+-- INICIALIZADOR DE BASE DE DATOS (reserva el ID 1 de UsuarioAcceso para el usuario Administrador. Se inserta con ID explícito, así que no depende del AUTO_INCREMENT ni de que la tabla esté vacía. La clave es un placeholder: hay que cambiarla desde la aplicación)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Inicializador`(
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Inicializador()',NULL);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF NOT EXISTS (SELECT 1 FROM UsuarioAcceso WHERE idUsuarioAcceso = 1) THEN
+   
+   	START TRANSACTION;
+      
+      	-- ID explícito: el 1 queda siempre para el Administrador (el AUTO_INCREMENT sigue desde el 2 para el resto)
+      	INSERT INTO UsuarioAcceso (idUsuarioAcceso, nombreUsuario, clave, numeroIntentos, ultimoIntento)
+         VALUES (1, 'admin', 'CAMBIAR_CLAVE', 0, CURRENT_DATE());
+         
+         CALL Cargar_Log(0,'Se creó el usuario administrador con ID = 1','[SQL] Inicializador()',1);
+      
+      COMMIT;
+   
+   ELSEIF NOT EXISTS (SELECT 1 FROM UsuarioAcceso WHERE idUsuarioAcceso = 1 AND nombreUsuario = 'admin') THEN
+   
+   	SELECT 'El ID 1 está ocupado por un usuario que no es el administrador.' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,'El ID 1 de UsuarioAcceso no pertenece al usuario admin','[SQL] Inicializador()',NULL);
+   
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- CREAR CLIENTE (Tipo_IN: 'P' = Persona, 'E' = Empresa. Rubro_IN y Director_IN solo se usan en Empresa)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Crear_Cliente`(
+	IN `Nombre_IN` VARCHAR(40),
+	IN `Ingreso_IN` DECIMAL(10,3),
+	IN `Gastos_IN` DECIMAL(10,3),
+	IN `Historial_IN` VARCHAR(100),
+	IN `Tipo_IN` CHAR(1),
+	IN `Rubro_IN` VARCHAR(50),
+	IN `Director_IN` VARCHAR(40),
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE id_cliente INT DEFAULT 0;
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Crear_Cliente()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF ((Tipo_IN IS NULL) OR (UPPER(Tipo_IN) NOT IN ('P','E'))) THEN
+   
+   	SELECT 'El tipo de cliente debe ser P (Persona) o E (Empresa).' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,'Se intentó crear un cliente con un tipo inválido','[SQL] Crear_Cliente()',ID_Usuario_IN);
+   
+   ELSEIF ((UPPER(Tipo_IN) = 'E') AND ((Rubro_IN IS NULL) OR (Director_IN IS NULL))) THEN
+   
+   	SELECT 'Una empresa necesita rubro y director.' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,'Se intentó crear una empresa sin rubro o sin director','[SQL] Crear_Cliente()',ID_Usuario_IN);
+   
+   ELSE
+   
+   	START TRANSACTION;
+      
+      	INSERT INTO UsuarioCliente (nombre, ingreso, gastos, historial)
+         VALUES (Nombre_IN, Ingreso_IN, Gastos_IN, Historial_IN);
+         
+         SET id_cliente = LAST_INSERT_ID();
+         
+         IF UPPER(Tipo_IN) = 'E' THEN
+         
+         	INSERT INTO Empresa (rubro, director, idCliente)
+            VALUES (Rubro_IN, Director_IN, id_cliente);
+         
+         ELSE
+         
+         	INSERT INTO Persona (idCliente)
+            VALUES (id_cliente);
+         
+         END IF;
+         
+         CALL Cargar_Log(0,CONCAT('Se creó el cliente ',Nombre_IN,' (tipo ',UPPER(Tipo_IN),') con ID = ',id_cliente),'[SQL] Crear_Cliente()',ID_Usuario_IN);
+      
+      COMMIT;
+   
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- MODIFICAR CLIENTE (Nuevo_Rubro_IN y Nuevo_Director_IN solo aplican si el cliente es Empresa; si vienen en NULL se conserva el valor actual)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Modificar_Cliente`(
+	IN `ID_Cliente_IN` INT,
+	IN `Nuevo_Nombre_IN` VARCHAR(40),
+	IN `Nuevo_Ingreso_IN` DECIMAL(10,3),
+	IN `Nuevos_Gastos_IN` DECIMAL(10,3),
+	IN `Nuevo_Historial_IN` VARCHAR(100),
+	IN `Nuevo_Rubro_IN` VARCHAR(50),
+	IN `Nuevo_Director_IN` VARCHAR(40),
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Modificar_Cliente()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF EXISTS (SELECT 1 FROM UsuarioCliente WHERE idCliente = ID_Cliente_IN) THEN
+   
+   	START TRANSACTION;
+      
+      	UPDATE UsuarioCliente SET nombre = Nuevo_Nombre_IN, ingreso = Nuevo_Ingreso_IN, gastos = Nuevos_Gastos_IN, historial = Nuevo_Historial_IN
+         WHERE idCliente = ID_Cliente_IN;
+         
+         -- Si el cliente es Persona no hay fila en Empresa y este UPDATE no toca nada
+         UPDATE Empresa SET rubro = COALESCE(Nuevo_Rubro_IN,rubro), director = COALESCE(Nuevo_Director_IN,director)
+         WHERE idCliente = ID_Cliente_IN;
+         
+         CALL Cargar_Log(0,CONCAT('Se modificó correctamente al cliente ID = ',ID_Cliente_IN),'[SQL] Modificar_Cliente()',ID_Usuario_IN);
+      
+      COMMIT;
+   
+   ELSE
+   
+   	SELECT 'Cliente indicado no existente en el sistema' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,CONCAT('Se intentó modificar un cliente inexistente, ID = ',ID_Cliente_IN),'[SQL] Modificar_Cliente()',ID_Usuario_IN);
+   
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- ELIMINAR CLIENTE (borrado físico: primero se borran Empresa/Persona por la FK y después el cliente)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Eliminar_Cliente`(
+	IN `ID_Cliente_IN` INT,
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Eliminar_Cliente()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF EXISTS (SELECT 1 FROM UsuarioCliente WHERE idCliente = ID_Cliente_IN) THEN
+   
+   	START TRANSACTION;
+      
+      	DELETE FROM Empresa WHERE idCliente = ID_Cliente_IN;
+         
+         DELETE FROM Persona WHERE idCliente = ID_Cliente_IN;
+         
+         DELETE FROM UsuarioCliente WHERE idCliente = ID_Cliente_IN;
+         
+         CALL Cargar_Log(0,CONCAT('Se eliminó exitosamente al cliente ID = ',ID_Cliente_IN,' del sistema'),'[SQL] Eliminar_Cliente()',ID_Usuario_IN);
+      
+      COMMIT;
+   
+   ELSE
+   
+   	SELECT 'Cliente indicado no existente en el sistema' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,CONCAT('Se intentó eliminar un cliente inexistente, ID = ',ID_Cliente_IN),'[SQL] Eliminar_Cliente()',ID_Usuario_IN);
+   
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- BUSCAR USUARIOS (Nombre NULL -> todos / Nombre sin Clave -> por nombre / Nombre y Clave -> coincidencia exacta, para el login)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Buscar_Usuarios`(
+	IN `Nombre_IN` VARCHAR(40),
+	IN `Clave_IN` VARCHAR(200),
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Buscar_Usuarios()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF (Nombre_IN IS NULL) THEN
+   
+   	SELECT idUsuarioAcceso, nombreUsuario, clave, numeroIntentos, ultimoIntento FROM UsuarioAcceso;
+      
+   ELSEIF (Clave_IN IS NULL) THEN
+   
+   	SELECT idUsuarioAcceso, nombreUsuario, clave, numeroIntentos, ultimoIntento FROM UsuarioAcceso WHERE (nombreUsuario = Nombre_IN);
+   
+   ELSE
+   
+   	SELECT idUsuarioAcceso, nombreUsuario, clave, numeroIntentos, ultimoIntento FROM UsuarioAcceso WHERE ((nombreUsuario = Nombre_IN) AND (clave = Clave_IN));
+      
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- EXTRACTOR USUARIOS
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Extractor_Usuarios`(
+	IN `ID_Usuario_Buscado_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Extractor_Usuarios()',ID_Usuario_Buscado_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   SELECT idUsuarioAcceso, nombreUsuario, clave, numeroIntentos, ultimoIntento FROM UsuarioAcceso WHERE idUsuarioAcceso = ID_Usuario_Buscado_IN;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- REINICIADOR DE INTENTOS (si pasaron más de 7 días desde el último intento, el contador vuelve a 0)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Reiniciador_Intentos`(
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE ult_fecha DATE;
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Reiniciador_Intentos()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF EXISTS (SELECT 1 FROM UsuarioAcceso WHERE idUsuarioAcceso = ID_Usuario_IN) THEN
+   
+   	SELECT ultimoIntento INTO ult_fecha FROM UsuarioAcceso WHERE idUsuarioAcceso = ID_Usuario_IN;
+      
+      IF ((ult_fecha IS NOT NULL) AND (DATEDIFF(CURRENT_DATE(),ult_fecha) > 7)) THEN
+      
+      	START TRANSACTION;
+         
+         	UPDATE UsuarioAcceso SET numeroIntentos = 0 WHERE idUsuarioAcceso = ID_Usuario_IN;
+            
+            CALL Cargar_Log(0,CONCAT('Se reinició el contador de intentos del usuario ID = ',ID_Usuario_IN),'[SQL] Reiniciador_Intentos()',ID_Usuario_IN);
+         
+         COMMIT;
+      
+      END IF;
+   
+   ELSE
+   
+   	SELECT 'Usuario indicado no existente en el sistema' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,CONCAT('Se intentó reiniciar los intentos de un usuario inexistente, ID = ',ID_Usuario_IN),'[SQL] Reiniciador_Intentos()',NULL);
+   
+   END IF;
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- CARGAR LOG (sin START TRANSACTION/COMMIT ni handler propios: así el log queda dentro de la transacción del SP que lo llama y, si el INSERT falla, el error sube al handler del llamador)
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Cargar_Log`(
+	IN `Numero_Error_IN` INT,
+	IN `Mensaje_IN` VARCHAR(500),
+	IN `Proceso_IN` VARCHAR(50),
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+
+   INSERT INTO infoLog (numeroError, error, idUsuarioAcceso)
+   VALUES (Numero_Error_IN, LEFT(CONCAT(Proceso_IN,' ',Mensaje_IN),300), ID_Usuario_IN);
+
+END
+
+------------------------------------------------------------------------------------------
+
+-- ASIGNADO ESTADO (Estado_IN: 1 = Aprobado, 2 = Rechazado. Solo se puede asignar a un cliente que está Pendiente (3))
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `Asignado_Estado`(
+	IN `ID_Cliente_IN` INT,
+	IN `Estado_IN` TINYINT,
+	IN `ID_Usuario_IN` INT
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+	DECLARE estado_actual TINYINT DEFAULT NULL;
+	DECLARE texto VARCHAR(100) DEFAULT '';
+
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+   
+   	DECLARE validador TINYINT DEFAULT 0;
+      
+      GET DIAGNOSTICS CONDITION 1 @sqlstate = RETURNED_SQLSTATE, @errno = MYSQL_ERRNO, @text = MESSAGE_TEXT;
+      
+      ROLLBACK;
+      
+      BEGIN
+      
+      	DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+         	SET validador = 1;
+         
+         CALL Cargar_Log(@errno,CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',LEFT(@text,200)),'[SQL] Asignado_Estado()',ID_Usuario_IN);
+      
+      END;
+      
+      IF validador THEN
+      
+      	SELECT CONCAT('ERROR: [',@sqlstate,':',@errno,']\n',@text,'\n(Además falló el registro en infoLog)') AS 'ERROR';
+      
+      END IF;
+      
+      RESIGNAL;
+   
+   END;
+
+   IF ((Estado_IN IS NULL) OR (Estado_IN NOT IN (1,2))) THEN
+   
+   	SELECT 'El estado debe ser 1 (Aprobado) o 2 (Rechazado).' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,'Se intentó asignar un estado inválido','[SQL] Asignado_Estado()',ID_Usuario_IN);
+   
+   ELSEIF NOT EXISTS (SELECT 1 FROM UsuarioCliente WHERE idCliente = ID_Cliente_IN) THEN
+   
+   	SELECT 'No existe un cliente con dicha ID.' AS 'ADVERTENCIA';
+      
+      CALL Cargar_Log(45000,'Se intentó gestionar un cliente inexistente','[SQL] Asignado_Estado()',ID_Usuario_IN);
+   
+   ELSE
+   
+   	SELECT estado INTO estado_actual FROM UsuarioCliente WHERE idCliente = ID_Cliente_IN;
+      
+      IF estado_actual != 3 THEN
+      
+      	SELECT 'No se puede cambiar el estado de un cliente ya gestionado.' AS 'ADVERTENCIA';
+         
+         CALL Cargar_Log(45000,CONCAT('Se intentó cambiar el estado de un cliente ya gestionado, ID = ',ID_Cliente_IN),'[SQL] Asignado_Estado()',ID_Usuario_IN);
+      
+      ELSE
+      
+      	START TRANSACTION;
+         
+         	UPDATE UsuarioCliente SET estado = Estado_IN WHERE idCliente = ID_Cliente_IN;
+            
+            IF Estado_IN = 1 THEN
+            
+            	SET texto = CONCAT('Se aprobó de forma exitosa al cliente ID = ',ID_Cliente_IN);
+            
+            ELSE
+            
+            	SET texto = CONCAT('Se rechazó de forma exitosa al cliente ID = ',ID_Cliente_IN);
+            
+            END IF;
+            
+            CALL Cargar_Log(0,texto,'[SQL] Asignado_Estado()',ID_Usuario_IN);
+         
+         COMMIT;
+      
+      END IF;
+   
+   END IF;
+
+END
