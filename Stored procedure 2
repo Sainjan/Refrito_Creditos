@@ -1,7 +1,7 @@
 CREATE DATABASE SteaMLBDD;
 
 USE SteaMLBDD;
-
+ 
 -- Tablas del diagrama: UsuarioAcceso, UsuarioCliente, Empresa, Persona, infoLog
 -- Convención de infoLog.numeroError: 0 -> operación exitosa / 45000 -> advertencia de validación / otro -> MYSQL_ERRNO del error capturado
 -- Columnas EXTRA (no están en el diagrama pero las necesitan algunos SP): UsuarioAcceso.numeroIntentos, UsuarioAcceso.ultimoIntento y UsuarioCliente.estado
