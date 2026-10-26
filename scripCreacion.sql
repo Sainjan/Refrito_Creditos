@@ -46,13 +46,16 @@ CREATE TABLE infoLog (
     PRIMARY KEY (idLog)
 );
 
-CREATE TABLE FechaCredito(
-    RegistroFecha INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    fechaCredito DATE NOT NULL,
+CREATE TABLE Solicitud(
+    idSolicitud INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    ingresoAcutla INT NOT NULL,
+    gastoAnual DECIMAL(10,2) NOT NULL,
+    estadoSolicitud VARCHAR(20) NOT NULL,
+    fechaSolicitud DATE NOT NULL,
     idCliente INT NOT NULL
 );
 
-ALTER TABLE FechaCredito
+ALTER TABLE Solicitud
   ADD FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente);
 
 CREATE table estado (

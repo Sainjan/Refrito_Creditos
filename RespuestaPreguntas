@@ -1,0 +1,35 @@
+¿Qué nombre le van a dar al esquema y por qué conviene que sea significativo para el dominio del
+problema?
+
+Se creo la base de datos con nombre Credito, haciendo referencia al nombre de lo que va a desarrollar el programa,
+lo hice significativo para poder identificarfalo facilmente al ejecutar el developer.
+
+¿Por qué conviene separar los atributos comunes en una tabla padre en lugar de repetirlos en cada tabla
+hija?
+
+Nos permite organizar mejor nuestras tablas, teniendo una principal (Padre) en la que se guardaran los datos en comun,
+y dos subTablas (Hijas) en las cuales se guardan datos especificos, permitiendo no tener errores de normalizacion.
+
+¿Qué ocurriría si eliminaran la restricción de clave foránea? ¿Qué tipo de inconsistencias podrían
+aparecer?
+
+Si se eliminan las clases foraneas, pierde la condicion de tablas relacionales, ya que no se podria traer los datos
+de las tablas hijas.
+
+¿Por qué la tabla de usuarios no debería formar parte de la jerarquía de clientes?
+
+Porque son los datos de acceso los cuales no deberian estar vinculados al cliente, dividiendo asi la entidad del actor
+
+¿Qué diferencia hay entre una clave primaria y una clave foránea en este modelo?
+
+La primaria es aquella que declara el una fila de trabajo, y la foranea nos permite llamarlas de otras tablas.
+
+¿Qué implicaría permitir duplicados en el campo nombre_usuario y por qué la restricción de unicidad es
+indispensable para un sistema de acceso?
+
+Implicaría perder la normalizacion del esquema, provocando que se encuentren multiples datos iguales cuando deberian ser unicos
+
+¿Qué consideraciones habría que tener en cuenta al eliminar un usuario de la tabla: qué pasa con el
+identificador y con la clave almacenada?
+
+Al ser auto Incremental, no se podra reutilizar la id, y la clave del usuario sera eliminada se elimina de inmediato. 
