@@ -1,0 +1,79 @@
+CREATE DATABASE IF NOT EXISTS Credito;
+USE Credito;
+
+-- Desactivar temporalmente la verificación de claves foráneas para poder borrarlas en orden seguro
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS infoLog;
+DROP TABLE IF EXISTS Empresa;
+DROP TABLE IF EXISTS Persona;
+DROP TABLE IF EXISTS Solicitud;
+DROP TABLE IF EXISTS estado;
+DROP TABLE IF EXISTS UsuarioCliente;
+DROP TABLE IF EXISTS UsuarioAcceso;
+
+-- Volver a activar la verificación
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- Creación de tablas
+
+CREATE TABLE UsuarioAcceso (
+    idUsuarioAcceso INT NOT NULL AUTO_INCREMENT,
+    clave VARCHAR(200),
+    nombreUsuario VARCHAR(40),
+    numeroIntentos INT NOT NULL DEFAULT 0,
+    ultimoIntento DATE,
+    PRIMARY KEY (idUsuarioAcceso)
+);
+
+CREATE TABLE UsuarioCliente (
+    idCliente INT NOT NULL AUTO_INCREMENT,
+    nombre VARCHAR(40),
+    ingreso DECIMAL(10,3),
+    gastos DECIMAL(10,3),
+    historial VARCHAR(100),
+    estado TINYINT NOT NULL DEFAULT 3,
+    PRIMARY KEY (idCliente)
+);
+
+CREATE TABLE Empresa (
+    idEmpresa INT NOT NULL AUTO_INCREMENT,
+    rubro VARCHAR(50),
+    director VARCHAR(40),
+    idCliente INT NOT NULL,
+    PRIMARY KEY (idEmpresa),
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente)
+);
+
+CREATE TABLE Persona (
+    idPersona INT NOT NULL AUTO_INCREMENT,
+    idCliente INT NOT NULL,
+    PRIMARY KEY (idPersona),
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente)
+);
+
+CREATE TABLE infoLog (
+    idLog INT NOT NULL AUTO_INCREMENT,
+    numeroError INT,
+    error VARCHAR(300),
+    idUsuarioAcceso INT,
+    PRIMARY KEY (idLog),
+    FOREIGN KEY (idUsuarioAcceso) REFERENCES UsuarioAcceso(idUsuarioAcceso)
+);
+
+CREATE TABLE Solicitud (
+    idSolicitud INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    ingresoAcutla INT NOT NULL,
+    gastoAnual DECIMAL(10,2) NOT NULL,
+    estadoSolicitud VARCHAR(20) NOT NULL,
+    fechaSolicitud DATE NOT NULL,
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente)
+);
+
+CREATE TABLE estado (
+    idEstado INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    estadoCredito VARCHAR(20) NOT NULL,
+    idCliente INT NOT NULL,
+    FOREIGN KEY (idCliente) REFERENCES UsuarioCliente(idCliente)
+);
